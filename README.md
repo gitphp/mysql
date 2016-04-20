@@ -1,4 +1,4 @@
-# 我的项目数据库收集
+# 我的MYSQL数据库收集
 
 ```
 # ************************************************************
@@ -35,13 +35,14 @@
 ```
 ## 用户角色表
 
-CREATE TABLE `pt_role` (
-  `id` int(10) unsigned NOT NULL AUTO_INCREMENT COMMENT '角色id',
-  `rname` varchar(50) NOT NULL COMMENT '角色名字',
-  `rstatus` tinyint NOT NULL COMMENT '角色使用状态',
-  `ctime` int(10) NOT NULL COMMENT '添加时间',
-  `rdesc` varchar(255) NOT NULL COMMENT '角色描述',
-  PRIMARY KEY (`id`)
+```
+CREATE TABLE pt_role (
+  id int(10) unsigned NOT NULL AUTO_INCREMENT COMMENT '角色id',
+  rname varchar(50) NOT NULL COMMENT '角色名字',
+  rstatus tinyint NOT NULL COMMENT '角色使用状态',
+  ctime int(10) NOT NULL COMMENT '添加时间',
+  rdesc varchar(255) NOT NULL COMMENT '角色描述',
+  PRIMARY KEY (id)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8 COMMENT='角色表';
 
 
