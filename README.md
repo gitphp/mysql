@@ -31,8 +31,10 @@
 ###2、微博数据表建立
 
 
+
 ```
--- 用户角色表
+## 用户角色表
+
 CREATE TABLE `pt_role` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT COMMENT '角色id',
   `rname` varchar(50) NOT NULL COMMENT '角色名字',
