@@ -17,6 +17,7 @@
 
 --
 -- Table structure for table `es_admin`
+
 --
 
 DROP TABLE IF EXISTS `es_admin`;
