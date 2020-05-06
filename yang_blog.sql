@@ -28,6 +28,8 @@ CREATE TABLE `bk_ad` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='广告表';
 
+
+
 #
 # Data for table "bk_ad"
 #
