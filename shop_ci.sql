@@ -19,6 +19,196 @@ DROP DATABASE IF EXISTS `shop_ci`;
 CREATE DATABASE `shop_ci` /*!40100 DEFAULT CHARACTER SET utf8 */;
 USE `shop_ci`;
 
+-- 流程定义
+CREATE TABLE `wf_process_definition` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `tenant_id` bigint(20) DEFAULT NULL COMMENT '租户ID',
+  `process_key` varchar(64) NOT NULL COMMENT '流程标识（业务键，不变）',
+  `process_name` varchar(128) NOT NULL COMMENT '流程名称',
+  `version` int(11) NOT NULL DEFAULT 1 COMMENT '版本号（process_key+version唯一）',
+  `status` tinyint(4) NOT NULL DEFAULT 0 COMMENT '状态：0-草稿 1-已启用 2-已停用',
+  `category` varchar(64) DEFAULT NULL COMMENT '流程分类',
+  `form_def_id` bigint(20) DEFAULT NULL COMMENT '关联表单定义ID',
+  `description` varchar(512) DEFAULT NULL COMMENT '描述',
+  `is_deleted` tinyint(1) NOT NULL DEFAULT 0 COMMENT '逻辑删除 0-否 1-是',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_process_key_version` (`process_key`,`version`),
+  KEY `idx_tenant_status` (`tenant_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工作流-流程定义';
+
+-- 节点定义
+CREATE TABLE `wf_process_node_def` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `process_def_id` bigint(20) NOT NULL COMMENT '流程定义ID',
+  `node_code` varchar(64) NOT NULL COMMENT '节点编码（唯一，同流程下）',
+  `node_name` varchar(128) NOT NULL COMMENT '节点名称',
+  `node_type` varchar(32) NOT NULL COMMENT '节点类型：START/END/APPROVAL/CONDITION/PARALLEL_GATEWAY/INCLUSIVE_GATEWAY/CC',
+  `approver_rule` json DEFAULT NULL COMMENT '审批人规则JSON（APPROVAL节点使用）',
+  `approve_type` varchar(32) DEFAULT NULL COMMENT '审批模式：MANUAL(人工)/ALL_SIGN(会签)/OR_SIGN(或签)/RATIO_SIGN(比例签)',
+  `approve_ratio` decimal(3,2) DEFAULT NULL COMMENT '通过比例(会签比例时使用)',
+  `allow_transfer` tinyint(1) DEFAULT 1 COMMENT '是否允许转交',
+  `allow_add_sign` tinyint(1) DEFAULT 0 COMMENT '是否允许加签',
+  `allow_reject` tinyint(1) DEFAULT 1 COMMENT '是否允许驳回',
+  `reject_policy` varchar(32) DEFAULT 'TO_PREV' COMMENT '驳回策略：TO_PREV/TO_START/TO_DESIGNATED',
+  `reject_to_node_ids` json DEFAULT NULL COMMENT '可驳回指定节点ID列表',
+  `form_perm` json DEFAULT NULL COMMENT '表单字段权限配置',
+  `timeout_duration` int(11) DEFAULT NULL COMMENT '超时时间（小时），0表示不限',
+  `timeout_policy` varchar(32) DEFAULT NULL COMMENT '超时策略：PASS/REJECT/ASSIGN_TO',
+  `auto_skip_policy` json DEFAULT NULL COMMENT '自动跳过策略，如连续相同审批人跳过',
+  `sort_order` int(11) DEFAULT 0 COMMENT '排序',
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_process_node_code` (`process_def_id`,`node_code`),
+  KEY `idx_process_def_id` (`process_def_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工作流-节点定义';
+
+-- 连线定义
+CREATE TABLE `wf_process_edge_def` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `process_def_id` bigint(20) NOT NULL COMMENT '流程定义ID',
+  `source_node_id` bigint(20) NOT NULL COMMENT '源节点ID',
+  `target_node_id` bigint(20) NOT NULL COMMENT '目标节点ID',
+  `edge_name` varchar(64) DEFAULT NULL COMMENT '连线名称（同意/驳回等）',
+  `condition_expr` json DEFAULT NULL COMMENT '条件表达式，如{"field":"amount","op":">","val":1000}',
+  `is_default` tinyint(1) DEFAULT 0 COMMENT '是否默认连线（条件都不满足时）',
+  `sort_order` int(11) DEFAULT 0,
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_process_def_id` (`process_def_id`),
+  KEY `idx_source_node` (`source_node_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工作流-连线定义';
+
+-- 流程实例
+CREATE TABLE `wf_process_instance` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `tenant_id` bigint(20) DEFAULT NULL,
+  `process_def_id` bigint(20) NOT NULL COMMENT '关联的流程定义版本ID',
+  `process_key` varchar(64) NOT NULL COMMENT '冗余流程标识',
+  `process_name` varchar(128) NOT NULL COMMENT '冗余流程名称',
+  `business_key` varchar(128) NOT NULL COMMENT '业务单据唯一标识',
+  `originator` varchar(64) NOT NULL COMMENT '发起人ID',
+  `originator_name` varchar(64) DEFAULT NULL COMMENT '发起人姓名',
+  `department_id` bigint(20) DEFAULT NULL COMMENT '发起部门',
+  `status` varchar(32) NOT NULL DEFAULT 'RUNNING' COMMENT '实例状态：RUNNING/COMPLETED/REJECTED/CANCELLED',
+  `current_node_instance_ids` json DEFAULT NULL COMMENT '当前活跃的节点实例ID列表',
+  `form_data_snapshot` json DEFAULT NULL COMMENT '表单数据快照（审批时可对比）',
+  `start_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `end_time` datetime DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_business_key` (`business_key`,`process_key`),
+  KEY `idx_originator` (`originator`),
+  KEY `idx_status` (`status`),
+  KEY `idx_process_def_id` (`process_def_id`),
+  KEY `idx_create_time` (`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工作流-流程实例';
+
+-- 节点实例（运行轨迹）
+CREATE TABLE `wf_node_instance` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `process_instance_id` bigint(20) NOT NULL COMMENT '流程实例ID',
+  `node_def_id` bigint(20) NOT NULL COMMENT '节点定义ID',
+  `node_type` varchar(32) NOT NULL COMMENT '节点类型（冗余）',
+  `node_name` varchar(128) NOT NULL COMMENT '节点名称（冗余）',
+  `status` varchar(32) NOT NULL DEFAULT 'INACTIVE' COMMENT '状态：INACTIVE/ACTIVE/COMPLETED/REJECTED/SKIPPED/CANCELLED',
+  `start_time` datetime DEFAULT NULL,
+  `end_time` datetime DEFAULT NULL,
+  `duration` bigint(20) DEFAULT NULL COMMENT '耗时(毫秒)',
+  `loop_seq` int(11) DEFAULT 1 COMMENT '第几次进入该节点（驳回重入递增）',
+  `prev_node_instance_id` bigint(20) DEFAULT NULL COMMENT '前驱节点实例ID',
+  `result` varchar(32) DEFAULT NULL COMMENT '结果：PASS/REJECT',
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_process_instance_id` (`process_instance_id`),
+  KEY `idx_node_def_id` (`node_def_id`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工作流-节点实例';
+
+-- 审批任务表（核心待办/已办）
+CREATE TABLE `wf_task` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `tenant_id` bigint(20) DEFAULT NULL,
+  `process_instance_id` bigint(20) NOT NULL,
+  `node_instance_id` bigint(20) NOT NULL COMMENT '所属节点实例',
+  `node_def_id` bigint(20) DEFAULT NULL COMMENT '冗余节点定义ID',
+  -- 冗余展示字段，避免join
+  `process_name` varchar(128) NOT NULL COMMENT '流程名称（冗余）',
+  `business_key` varchar(128) NOT NULL COMMENT '业务单号（冗余）',
+  `originator` varchar(64) NOT NULL COMMENT '发起人ID（冗余）',
+  `originator_name` varchar(64) DEFAULT NULL,
+  `node_name` varchar(128) NOT NULL COMMENT '节点名称（冗余）',
+  `assignee` varchar(64) NOT NULL COMMENT '审批人ID',
+  `assignee_name` varchar(64) DEFAULT NULL,
+  `original_assignee` varchar(64) DEFAULT NULL COMMENT '原始审批人（转交场景）',
+  `task_status` varchar(32) NOT NULL DEFAULT 'PENDING' COMMENT '任务状态：PENDING/COMPLETED/REJECTED/TRANSFERRED/ADD_SIGN_WAITING/CANCELLED',
+  `approve_opinion` text COMMENT '审批意见',
+  `signature` varchar(255) DEFAULT NULL COMMENT '审批签名（图片URL）',
+  `is_add_sign_task` tinyint(1) DEFAULT 0 COMMENT '是否加签产生',
+  `parent_task_id` bigint(20) DEFAULT NULL COMMENT '加签父任务ID',
+  `add_sign_type` varchar(32) DEFAULT NULL COMMENT '加签类型：PRE_ADD/POST_ADD',
+  `deadline` datetime DEFAULT NULL COMMENT '截止时间',
+  `is_urged` tinyint(1) DEFAULT 0 COMMENT '是否已被催办',
+  `urged_time` datetime DEFAULT NULL,
+  `claim_time` datetime DEFAULT NULL COMMENT '认领时间（若需要抢单）',
+  `complete_time` datetime DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_assignee_status` (`assignee`,`task_status`),
+  KEY `idx_process_instance_id` (`process_instance_id`),
+  KEY `idx_node_instance_id` (`node_instance_id`),
+  KEY `idx_parent_task` (`parent_task_id`),
+  KEY `idx_create_time` (`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工作流-审批任务';
+
+-- 抄送实例
+CREATE TABLE `wf_cc_instance` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `process_instance_id` bigint(20) NOT NULL,
+  `node_instance_id` bigint(20) DEFAULT NULL COMMENT '抄送所在节点实例',
+  `cc_user_id` varchar(64) NOT NULL,
+  `cc_user_name` varchar(64) DEFAULT NULL,
+  `read_status` tinyint(1) DEFAULT 0 COMMENT '0-未读 1-已读',
+  `cc_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `read_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_cc_user` (`cc_user_id`,`read_status`),
+  KEY `idx_process_instance_id` (`process_instance_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工作流-抄送记录';
+
+-- 操作日志
+CREATE TABLE `wf_operation_log` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `tenant_id` bigint(20) DEFAULT NULL,
+  `process_instance_id` bigint(20) NOT NULL,
+  `task_id` bigint(20) DEFAULT NULL,
+  `operator_id` varchar(64) NOT NULL,
+  `operator_name` varchar(64) DEFAULT NULL,
+  `operation_type` varchar(32) NOT NULL COMMENT '操作类型：SUBMIT/APPROVE/REJECT/TRANSFER/ADD_SIGN/URGE/CANCEL/ROLLBACK',
+  `operation_desc` text,
+  `detail_json` json DEFAULT NULL COMMENT '变更细节',
+  `operation_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_process_instance_id` (`process_instance_id`),
+  KEY `idx_task_id` (`task_id`),
+  KEY `idx_operator` (`operator_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工作流-操作日志';
+
+-- 催办记录
+CREATE TABLE `wf_urge_record` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `task_id` bigint(20) NOT NULL,
+  `urger_id` varchar(64) NOT NULL,
+  `urger_name` varchar(64) DEFAULT NULL,
+  `urge_message` varchar(500) DEFAULT NULL,
+  `urge_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_task_id` (`task_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工作流-催办记录';
+
 #
 # Source for table "ci_admin"
 #
